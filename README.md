@@ -144,19 +144,18 @@ A session opens when a task becomes **Active** and closes when it leaves that st
 Open **Timesheet** in the dashboard sidebar, or the 📋 button in the popup.
 
 1. Pick a day (today by default; ‹ › moves between days). Oopsie lists every task that was **completed** that day, **worked on** that day (it was Active), and, optionally, **planned** for that day but not started. Each shows the time spent within that day. Sessions that cross midnight are split between the two days.
-2. A **Quick summary** is filled in immediately, with no AI and nothing sent anywhere:
+2. A **Quick summary** is filled in immediately, with no AI and nothing sent anywhere. It is written as **2–4 detailed points**, depending on how much was done:
+   - 1 task → 2 points (the work, then its progress or outcome);
+   - 2–4 tasks → one point each, and a task with lots of notes/subtasks may get a second point;
+   - 5+ tasks → smaller tasks with the same status are merged so there are at most 4 points.
+
+   Each point mentions the **task number** (from the title like `#392`, `Ticket 392`, `PROJ-12`, or from the task's GitHub/Jira link or a `#392` label) and reflects the **status**: completed, started that day, continued from an earlier day, still active, paused, or planned but not started. Notes and subtasks add the detail:
    ```
-   - Completed Review pull requests for payments API (1h 15m)
-   - Worked on Write sprint planning doc (1h 55m, 1/2 subtasks done) — in progress
-   - Planned: Client sync call (not started yet)
+   - Completed ticket #379 – export fix. Fixed the CSV encoding and deployed to staging.
+   - Continued working on ticket #392 – scheduling changes. Wrapped up validation, with the UI still pending.
+   - Started fixing login bug (ticket #12). This is still in progress.
    ```
-3. **Generate with Gemini** rewrites it as polished, past-tense bullets, using task notes and subtasks if allowed:
-   ```
-   - Reviewed pull requests for payments API; requested changes on retry logic (1h 15m)
-   - Fixed login redirect bug (1h 10m)
-   - Worked on the sprint planning doc (in progress, 1h 55m)
-   ```
-   Every line is forced to start with `- `, whatever the model returns.
+3. **Generate with Gemini** rewrites it as polished, natural bullets. Gemini gets each task's ticket number, status, subtask progress and (if allowed) notes, and is asked for the same number of points (2–4). Every line is forced to start with `- `, and anything past 4 points is folded into the last one.
 4. Edit the text if you like, then click **Copy** and paste it into your timesheet tool.
 
 Options: include planned tasks and include time spent (both **off** by default, matching a typical timesheet), and let Gemini use notes and subtasks.

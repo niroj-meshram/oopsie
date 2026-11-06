@@ -82,7 +82,7 @@ export function TimesheetView({ now, onOpenSettings }: { now: number; onOpenSett
     setBusy(true);
     setError(null);
     try {
-      const res = await service.generateTimesheet(buildPrompt(report, { includeTime, includeNotes, styleExamples: data.settings.timesheetExamples }), controller.signal);
+      const res = await service.generateTimesheet(buildPrompt(report, { includeTime, includeNotes, styleExamples: data.settings.timesheetExamples, now }), controller.signal);
       if (controller.signal.aborted) return;
       setText(res.text);
       setSource('ai');
