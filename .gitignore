@@ -1,0 +1,7 @@
+node_modules
+dist
+oopsie.zip
+*.log
+.env
+.env.local
+.env.*.local

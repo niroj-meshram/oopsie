@@ -1,0 +1,41 @@
+{
+  "name": "oopsie",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Oopsie — Oops less. Do more. A friendly to-do and reminder Chrome extension.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "npm run typecheck && vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "icons": "node scripts/generate-icons.mjs",
+    "check": "npm run typecheck && npm run lint && npm run test && vite build",
+    "package": "VITE_GEMINI_API_KEY= npm run build && cd dist && zip -qr ../oopsie.zip . && echo 'oopsie.zip built WITHOUT your .env key — safe to share. Run npm run build again for your personal build.'"
+  },
+  "dependencies": {
+    "@fontsource-variable/bricolage-grotesque": "5.3.0",
+    "lucide-react": "0.468.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.17.0",
+    "@testing-library/react": "16.1.0",
+    "@types/chrome": "0.0.287",
+    "@types/node": "20.17.10",
+    "@types/react": "18.3.18",
+    "@types/react-dom": "18.3.5",
+    "@vitejs/plugin-react": "4.3.4",
+    "eslint": "9.17.0",
+    "eslint-plugin-react-hooks": "5.1.0",
+    "globals": "15.14.0",
+    "jsdom": "25.0.1",
+    "typescript": "5.7.3",
+    "typescript-eslint": "8.18.2",
+    "vite": "5.4.21",
+    "vitest": "2.1.9"
+  }
+}
