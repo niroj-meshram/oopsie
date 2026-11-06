@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { completeTask, createTask, reopenTask, startTask } from '@/features/tasks/services/taskLogic';
-import { buildDayReport, buildPrompt, localSummary, normalizeBullets } from '@/features/timesheet/timesheetLogic';
+import { buildDayReport, buildPrompt, extractTicket, localSummary, normalizeBullets, targetPointCount } from '@/features/timesheet/timesheetLogic';
 import { GeminiError, generateWithGemini } from '@/services/ai/gemini';
 import { Repository } from '@/services/storage/repository';
 import { buildExport } from '@/services/storage/schema';
@@ -52,23 +52,77 @@ describe('day report', () => {
 });
 
 describe('summaries', () => {
-  it('writes timesheet-style sentences without AI', () => {
+  it('writes one detailed point per task, saying where each one stands', () => {
     const text = localSummary(buildDayReport(sampleDay(), '2026-10-26', NOW, { includePlanned: true }), { includeTime: false }, NOW);
     expect(text.split('\n')).toEqual([
-      '- Reviewed pull requests. API + UI repos.',
-      '- Started working on writing sprint spec.',
-      '- Started working on fixing login bug.',
-      '- Planned to work on client call.',
+      '- Reviewed pull requests, covering API + UI repos.',
+      '- Started writing sprint spec. Wrapped up scope, with estimates still pending.',
+      '- Started fixing login bug. This is still in progress.',
+      '- Planned to work on client call. Not started yet.',
     ]);
     const timed = localSummary(buildDayReport(sampleDay(), '2026-10-26', NOW, { includePlanned: false }), { includeTime: true }, NOW);
-    expect(timed.split('\n')[0]).toBe('- Reviewed pull requests (1h 20m). API + UI repos.');
+    expect(timed.split('\n')[0]).toBe('- Reviewed pull requests (1h 20m), covering API + UI repos.');
   });
 
-  it('keeps ticket titles and says "Continued" for work started on an earlier day', () => {
+  it('keeps ticket numbers and says "Continued" for work started on an earlier day', () => {
     const t = startTask(createTask({ title: 'Ticket #392 scheduling changes' }, 0), at('2026-10-25', '16:00'));
-    const done = completeTask(createTask({ title: '#379 export fix' }, 0), NOW).task;
+    const done = completeTask(createTask({ title: '#379 export fix', description: 'Fixed the CSV encoding; deployed to staging' }, 0), NOW).task;
     const text = localSummary(buildDayReport([t, done], '2026-10-26', NOW, { includePlanned: false }), { includeTime: false }, NOW);
-    expect(text).toBe('- Completed #379 export fix.\n- Continued working on ticket #392 scheduling changes.');
+    expect(text).toBe(
+      '- Completed ticket #379 – export fix. Fixed the CSV encoding and deployed to staging.\n- Continued working on ticket #392 – scheduling changes. This is still in progress.',
+    );
+  });
+
+  it('writes two points for a single task', () => {
+    const bare = completeTask(createTask({ title: '#379 export fix' }, 0), NOW).task;
+    expect(localSummary(buildDayReport([bare], '2026-10-26', NOW, { includePlanned: false }), { includeTime: false }, NOW)).toBe(
+      '- Completed ticket #379 – export fix.\n- Marked ticket #379 as completed.',
+    );
+    const paused = reopenTask(startTask(createTask({ title: 'Fix login bug', url: 'https://github.com/acme/app/issues/12', description: 'Traced it to the session cookie' }, 0), DAY_START), DAY_START + 60 * MIN);
+    expect(localSummary(buildDayReport([paused], '2026-10-26', NOW, { includePlanned: false }), { includeTime: false }, NOW).split('\n')).toEqual([
+      '- Started fixing login bug (ticket #12). Traced it to the session cookie.',
+      '- Work on ticket #12 is still in progress and will continue in the next session.',
+    ]);
+  });
+
+  it('gives a detailed task a second point and merges small tasks to stay within four points', () => {
+    const rich = completeTask(
+      startTask(createTask({ title: 'PROJ-41 invoice totals', description: 'Fixed rounding; added unit tests', subtasks: [{ title: 'Backend', done: true }] }, 0), DAY_START),
+      DAY_START + 60 * MIN,
+    ).task;
+    const wip = reopenTask(startTask(createTask({ title: 'Write spec', description: 'Drafted the outline', subtasks: [{ title: 'Outline', done: true }, { title: 'Estimates' }] }, 0), DAY_START), DAY_START + 30 * MIN);
+    const two = localSummary(buildDayReport([rich, wip], '2026-10-26', NOW, { includePlanned: false }), { includeTime: false }, NOW).split('\n');
+    expect(two).toEqual([
+      '- Completed ticket PROJ-41 – invoice totals. Fixed rounding and added unit tests.',
+      '- Covered backend as part of ticket PROJ-41.',
+      '- Started writing spec. Drafted the outline.',
+      '- Wrapped up outline, with estimates still pending.',
+    ]);
+
+    const many = ['#1 a', '#2 b', '#3 c', '#4 d', '#5 e', '#6 f'].map((title, i) =>
+      completeTask(startTask(createTask({ title }, 0), DAY_START + i * 10 * MIN), DAY_START + (i * 10 + 10 - i) * MIN).task,
+    );
+    const planned = [createTask({ title: 'Team retro', dueDate: '2026-10-26' }, 0), createTask({ title: 'Prepare demo', dueDate: '2026-10-26' }, 0)];
+    const report = buildDayReport([...many, ...planned], '2026-10-26', NOW, { includePlanned: true });
+    const lines = localSummary(report, { includeTime: false }, NOW).split('\n');
+    expect(lines).toHaveLength(4);
+    expect(lines[3]).toBe('- Planned to prepare demo and work on team retro; not started yet.');
+    for (const n of [1, 2, 3, 4, 5, 6]) expect(lines.join(' ')).toContain(`ticket #${n}`);
+    expect(targetPointCount(report, NOW)).toBe(4);
+  });
+
+  it('finds task numbers in titles, links and labels', () => {
+    const t = (title: string, url: string | null = null, labels: string[] = []) => extractTicket({ title, url, labels });
+    expect(t('#392 export fix')).toEqual({ ticket: 'ticket #392', mentioned: false, subject: 'export fix' });
+    expect(t('Ticket 392: scheduling')).toEqual({ ticket: 'ticket #392', mentioned: false, subject: 'scheduling' });
+    expect(t('Fix login [#12]')).toEqual({ ticket: 'ticket #12', mentioned: false, subject: 'Fix login' });
+    expect(t('PROJ-7 - totals')).toEqual({ ticket: 'ticket PROJ-7', mentioned: false, subject: 'totals' });
+    expect(t('Deploy #396 to production')).toEqual({ ticket: 'ticket #396', mentioned: true, subject: 'Deploy #396 to production' });
+    expect(t('PR 45 review comments').ticket).toBe('PR #45');
+    expect(t('covid-19 report').ticket).toBeNull();
+    expect(t('Review', 'https://github.com/a/b/pull/88').ticket).toBe('PR #88');
+    expect(t('Import', 'https://acme.atlassian.net/browse/OPS-88').ticket).toBe('ticket OPS-88');
+    expect(t('Import', null, ['backend', '#55']).ticket).toBe('ticket #55');
   });
 
   it('puts the user style examples into the prompt', () => {
@@ -76,7 +130,10 @@ describe('summaries', () => {
     const prompt = buildPrompt(report, { includeTime: false, includeNotes: true, styleExamples: '- Completed ticket #1 and deployed to staging.' });
     expect(prompt).toContain('Match their tone');
     expect(prompt).toContain('- Completed ticket #1 and deployed to staging.');
-    expect(prompt).toContain('in progress (started this day)');
+    expect(prompt).toContain('in progress – started this day');
+    expect(prompt).toContain('"now": "paused, will continue"');
+    expect(prompt).toContain('"subtasksRemaining"');
+    expect(prompt).toContain('exactly 3 detailed bullet points');
     expect(buildPrompt(report, { includeTime: false, includeNotes: true })).not.toContain('Match their tone');
   });
 
@@ -94,6 +151,7 @@ describe('summaries', () => {
   it('normalises model output into "- " bullets', () => {
     const raw = '```\n* **Completed** code review\n• Fixed bug.\n1. Worked on spec\n\n-Deployed #396 to production.\n```';
     expect(normalizeBullets(raw)).toBe('- Completed code review.\n- Fixed bug.\n- Worked on spec.\n- Deployed #396 to production.');
+    expect(normalizeBullets('- A\n- B\n- C\n- D\n- E')).toBe('- A.\n- B.\n- C.\n- D. E.');
   });
 });
 
